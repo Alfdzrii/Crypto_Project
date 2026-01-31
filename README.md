@@ -65,6 +65,9 @@ A comprehensive **Intrusion Detection System (IDS)** with Machine Learning capab
 ## 🎬 Demo
 
 ### Dashboard Interface
+
+![IDS Dashboard](img/Dashboard.png)
+
 The dashboard provides a comprehensive view of network security status:
 
 - **Status Indicator**: Real-time security status (Safe/Warning/Danger)
