@@ -133,9 +133,80 @@ def api_upload():
         return jsonify({'error': 'Only CSV files are supported'}), 400
     
     try:
-        # Read CSV file
         import pandas as pd
+        import re
         df = pd.read_csv(file)
+        
+        # --- PENAMBAHAN KODE: Deteksi dan Konversi Otomatis CDS.csv ---
+        is_raw_wireshark = all(col in df.columns for col in ['Time', 'Source', 'Destination', 'Protocol', 'Length', 'Info'])
+        
+        if is_raw_wireshark:
+            converted_data = []
+            for _, row in df.iterrows():
+                protocol_str = str(row.get('Protocol', '')).lower()
+                
+                # Pemetaan format protokol
+                if any(p in protocol_str for p in ['tcp', 'tls', 'http', 'ssl']):
+                    proto = 'tcp'
+                elif any(p in protocol_str for p in ['udp', 'quic', 'dns', 'ssdp']):
+                    proto = 'udp'
+                elif 'icmp' in protocol_str:
+                    proto = 'icmp'
+                else:
+                    proto = 'other'
+                
+                info = str(row.get('Info', ''))
+                
+                # Membaca/ekstraksi TCP Flag dari kolom 'Info'
+                flag = 'S0'
+                if '[SYN, ACK]' in info: flag = 'S1'
+                elif '[FIN' in info: flag = 'SF'
+                elif '[RST' in info: flag = 'REJ'
+                elif '[ACK]' in info: flag = 'SF'
+                
+                # Membaca Service dari port traffic di 'Info'
+                service = 'private'
+                port_match = re.search(r'(\d+)\s*>\s*(\d+)', info)
+                if port_match:
+                    dst_port = int(port_match.group(2))
+                    if dst_port in [80, 443, 8080]: service = 'http'
+                    elif dst_port == 53: service = 'dns'
+                    elif dst_port in [20, 21]: service = 'ftp'
+                    elif dst_port == 22: service = 'ssh'
+                    
+                packet = {
+                    'duration': float(row.get('Time', 0)),
+                    'protocol_type': proto,
+                    'service': service,
+                    'flag': flag,
+                    'src_bytes': int(row.get('Length', 0)),
+                    'dst_bytes': 0,  
+                    'land': 1 if row.get('Source') == row.get('Destination') else 0,
+                    'wrong_fragment': 0,
+                    'urgent': 0,
+                    'hot': 0,
+                    'num_failed_logins': 0,
+                    'logged_in': 0,
+                    'num_compromised': 0,
+                    'root_shell': 0,
+                    'su_attempted': 0,
+                    'num_root': 0,
+                    'num_file_creations': 0,
+                    'num_shells': 0,
+                    'num_access_files': 0,
+                    'count': 1,
+                    'srv_count': 1,
+                    'serror_rate': 0.0,
+                    'srv_serror_rate': 0.0,
+                    'rerror_rate': 0.0,
+                    'srv_rerror_rate': 0.0,
+                    'same_srv_rate': 1.0,
+                    'diff_srv_rate': 0.0,
+                    'srv_diff_host_rate': 0.0
+                }
+                converted_data.append(packet)
+            df = pd.DataFrame(converted_data)
+        # --- AKHIR PENAMBAHAN KODE ---
         
         # Check if file has required columns
         required_columns = config.FEATURE_COLUMNS
@@ -145,7 +216,7 @@ def api_upload():
         if missing_columns:
             return jsonify({
                 'error': f'CSV file is missing required columns. Please use training_data.csv as template.',
-                'missing_columns': missing_columns[:5],  # Show first 5 missing columns
+                'missing_columns': missing_columns[:5],
                 'hint': 'Upload a CSV file with the same format as training_data.csv'
             }), 400
         
